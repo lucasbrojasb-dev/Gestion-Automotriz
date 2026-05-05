@@ -4,54 +4,39 @@ import pandas as pd
 from datetime import datetime
 from fpdf import FPDF
 
-st.set_page_config(page_title="Mi Taller", layout="centered", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Mi Taller", layout="centered")
+
 st.title("🚗 Mi Taller Automotriz")
 
 # ==================== BASE DE DATOS ====================
 def init_db():
     conn = sqlite3.connect('taller.db')
     c = conn.cursor()
-    
     c.execute('''CREATE TABLE IF NOT EXISTS usuarios 
                  (username TEXT PRIMARY KEY, password TEXT, nombre TEXT, rol TEXT)''')
-    
-    c.execute('''CREATE TABLE IF NOT EXISTS clientes 
-                 (rut TEXT PRIMARY KEY, nombre TEXT, telefono TEXT, email TEXT, direccion TEXT)''')
-    
-    c.execute('''CREATE TABLE IF NOT EXISTS vehiculos 
-                 (patente TEXT PRIMARY KEY, marca TEXT, modelo TEXT, ano INTEGER, 
-                  km_actual INTEGER, cliente_rut TEXT)''')
-    
-    c.execute('''CREATE TABLE IF NOT EXISTS ordenes 
-                 (ot_id TEXT PRIMARY KEY, fecha TEXT, patente TEXT, estado TEXT, 
-                  mecanico TEXT, descripcion TEXT, subtotal REAL, iva REAL, total REAL, pagado REAL DEFAULT 0)''')
-    
-    c.execute('''CREATE TABLE IF NOT EXISTS items_ot 
-                 (id INTEGER PRIMARY KEY, ot_id TEXT, tipo TEXT, descripcion TEXT, 
-                  cantidad REAL, precio_unit REAL, subtotal REAL)''')
-
     c.execute("INSERT OR IGNORE INTO usuarios VALUES ('admin', 'admin123', 'Administrador', 'admin')")
-    c.execute("INSERT OR IGNORE INTO usuarios VALUES ('mecanico', '1234', 'Mecánico', 'mecanico')")
     conn.commit()
     conn.close()
 
 init_db()
 
-def get_db_connection():
+def get_db():
     return sqlite3.connect('taller.db')
 
 # ==================== LOGIN ====================
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
-    st.session_state.usuario = None
 
 if not st.session_state.logged_in:
     st.subheader("🔐 Iniciar Sesión")
-    username = st.text_input("Usuario")
-    password = st.text_input("Contraseña", type="password")
+    col1, col2 = st.columns([1,1])
+    with col1:
+        username = st.text_input("Usuario", placeholder="admin")
+    with col2:
+        password = st.text_input("Contraseña", type="password", placeholder="admin123")
     
     if st.button("Ingresar", use_container_width=True):
-        conn = get_db_connection()
+        conn = get_db()
         user = conn.execute("SELECT * FROM usuarios WHERE username=? AND password=?", 
                            (username, password)).fetchone()
         conn.close()
@@ -60,55 +45,70 @@ if not st.session_state.logged_in:
             st.session_state.usuario = user[2]
             st.rerun()
         else:
-            st.error("Usuario o contraseña incorrectos")
+            st.error("Usuario o contraseña incorrecta")
     st.stop()
 
-st.sidebar.success(f"👤 {st.session_state.usuario}")
+# ==================== SI YA INICIÓ SESIÓN ====================
+st.success(f"✅ Bienvenido, {st.session_state.usuario}")
 
-menu = st.sidebar.selectbox("Menú", 
-    ["🏠 Dashboard", "🚙 Vehículos", "🛠️ Nueva Orden", "📖 Historial", "📊 Reportes"])
+menu = st.sidebar.selectbox("Menú Principal", 
+    ["🏠 Dashboard", "🛠️ Nueva Orden", "📖 Historial", "🚙 Vehículos"])
 
-# ==================== INICIALIZACIÓN SEGURA ====================
-if 'items' not in st.session_state:
-    st.session_state.items = []
+st.divider()
 
-# ==================== FUNCIÓN PDF ====================
-def generar_pdf(tipo, ot_id, patente, mecanico, items, descripcion="", detalles_cliente=""):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, "MI TALLER AUTOMOTRIZ", ln=1, align="C")
-    pdf.set_font("Arial", "", 10)
-    pdf.cell(0, 6, "Concepción - Chile", ln=1, align="C")
-    pdf.ln(10)
+# ==================== DASHBOARD ====================
+if menu == "🏠 Dashboard":
+    st.subheader("Dashboard")
+    st.write("Sistema funcionando correctamente ✅")
+    st.info("Prueba las otras opciones del menú lateral")
 
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 10, "PRESUPUESTO", ln=1, align="C")
+# ==================== NUEVA ORDEN (SIMPLIFICADA) ====================
+elif menu == "🛠️ Nueva Orden":
+    st.subheader("Nueva Orden")
+    ot_id = f"OT-{datetime.now().strftime('%Y%m%d-%H%M')}"
+    st.info(f"Orden: **{ot_id}**")
+
+    patente = st.text_input("Patente del vehículo").upper()
+    mecanico = st.text_input("Mecánico", st.session_state.usuario)
     
-    pdf.set_font("Arial", "", 11)
-    pdf.cell(0, 8, f"Orden: {ot_id}   Patente: {patente}   Mecánico: {mecanico}", ln=1)
-    pdf.cell(0, 8, f"Fecha: {datetime.now().strftime('%d/%m/%Y')}", ln=1)
-    pdf.ln(5)
+    if 'items' not in st.session_state:
+        st.session_state.items = []
 
-    pdf.set_font("Arial", "B", 10)
-    pdf.cell(80, 8, "Descripción", 1)
-    pdf.cell(20, 8, "Cant", 1, align="C")
-    pdf.cell(35, 8, "P. Unit", 1, align="R")
-    pdf.cell(35, 8, "Subtotal", 1, align="R", ln=1)
+    col1, col2 = st.columns(2)
+    with col1:
+        tipo = st.selectbox("Tipo", ["Mano de Obra", "Repuesto", "Insumo", "Lubricante"])
+        cantidad = st.number_input("Cantidad", 0.1, value=1.0)
+    with col2:
+        descripcion = st.text_input("Descripción")
+        precio = st.number_input("Precio $", value=15000)
 
-    subtotal = 0
-    pdf.set_font("Arial", "", 10)
-    for item in items:
-        pdf.cell(80, 8, str(item.get('descripcion', ''))[:40], 1)
-        pdf.cell(20, 8, str(item.get('cantidad', '')), 1, align="C")
-        pdf.cell(35, 8, f"${item.get('precio_unit', 0):,.0f}", 1, align="R")
-        pdf.cell(35, 8, f"${item.get('subtotal', 0):,.0f}", 1, align="R", ln=1)
-        subtotal += item.get('subtotal', 0)
+    if st.button("➕ Agregar Item", use_container_width=True):
+        if descripcion.strip():
+            st.session_state.items.append({
+                "tipo": tipo,
+                "descripcion": descripcion,
+                "cantidad": cantidad,
+                "precio_unit": precio,
+                "subtotal": cantidad * precio
+            })
+            st.rerun()
 
-    iva = subtotal * 0.19
-    total = subtotal + iva
+    if st.session_state.items:
+        df = pd.DataFrame(st.session_state.items)
+        st.dataframe(df, use_container_width=True)
 
-    pdf.ln(5)
-    pdf.set_font("Arial", "B", 11)
-    pdf.cell(135, 8, "Subtotal", 1)
-    pdf.cell
+    if st.button("💾 Guardar Orden", type="primary", use_container_width=True):
+        st.success("Orden guardada (simulado)")
+
+# ==================== OTRAS SECCIONES ====================
+elif menu == "📖 Historial":
+    st.subheader("Historial")
+    patente = st.text_input("Buscar por Patente")
+    if patente:
+        st.info("Aquí aparecerán las órdenes de esa patente")
+
+elif menu == "🚙 Vehículos":
+    st.subheader("Vehículos")
+    st.write("Sección de vehículos (en desarrollo)")
+
+st.caption("Versión de prueba simplificada")
