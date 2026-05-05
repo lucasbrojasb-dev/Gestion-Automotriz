@@ -3,16 +3,8 @@ import sqlite3
 import pandas as pd
 from datetime import datetime
 from fpdf import FPDF
-import os
-import uuid
 
-# ==================== CONFIGURACIÓN ====================
-st.set_page_config(
-    page_title="Mi Taller Automotriz",
-    layout="centered",
-    initial_sidebar_state="collapsed"
-)
-
+st.set_page_config(page_title="Mi Taller", layout="centered", initial_sidebar_state="collapsed")
 st.title("🚗 Mi Taller Automotriz")
 
 # ==================== BASE DE DATOS ====================
@@ -32,20 +24,14 @@ def init_db():
     
     c.execute('''CREATE TABLE IF NOT EXISTS ordenes 
                  (ot_id TEXT PRIMARY KEY, fecha TEXT, patente TEXT, estado TEXT, 
-                  mecanico TEXT, descripcion TEXT, subtotal REAL, iva REAL, 
-                  total REAL, pagado REAL DEFAULT 0)''')
+                  mecanico TEXT, descripcion TEXT, subtotal REAL, iva REAL, total REAL, pagado REAL DEFAULT 0)''')
     
     c.execute('''CREATE TABLE IF NOT EXISTS items_ot 
                  (id INTEGER PRIMARY KEY, ot_id TEXT, tipo TEXT, descripcion TEXT, 
                   cantidad REAL, precio_unit REAL, subtotal REAL)''')
-    
-    c.execute('''CREATE TABLE IF NOT EXISTS fotos_vehiculo 
-                 (id INTEGER PRIMARY KEY, patente TEXT, filename TEXT, fecha TEXT)''')
 
-    # Usuario por defecto
     c.execute("INSERT OR IGNORE INTO usuarios VALUES ('admin', 'admin123', 'Administrador', 'admin')")
     c.execute("INSERT OR IGNORE INTO usuarios VALUES ('mecanico', '1234', 'Mecánico', 'mecanico')")
-    
     conn.commit()
     conn.close()
 
@@ -79,12 +65,15 @@ if not st.session_state.logged_in:
 
 st.sidebar.success(f"👤 {st.session_state.usuario}")
 
-# ==================== MENÚ ====================
 menu = st.sidebar.selectbox("Menú", 
     ["🏠 Dashboard", "🚙 Vehículos", "🛠️ Nueva Orden", "📖 Historial", "📊 Reportes"])
 
-# ==================== FUNCIÓN PARA GENERAR PDF ====================
-def generar_pdf(tipo, ot_id, patente, mecanico, items, descripcion="", resultado="", detalles_cliente="", pagado=0):
+# ==================== INICIALIZAR ITEMS ====================
+if 'items' not in st.session_state:
+    st.session_state.items = []
+
+# ==================== PDF FUNCTION ====================
+def generar_pdf(tipo, ot_id, patente, mecanico, items, descripcion="", detalles_cliente=""):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", "B", 16)
@@ -93,32 +82,29 @@ def generar_pdf(tipo, ot_id, patente, mecanico, items, descripcion="", resultado
     pdf.cell(0, 6, "Concepción - Chile", ln=1, align="C")
     pdf.ln(10)
 
-    titles = {"presupuesto": "PRESUPUESTO", "orden": "ORDEN DE TRABAJO", "liquidacion": "LIQUIDACIÓN - ENTREGA"}
     pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 10, titles.get(tipo, "DOCUMENTO"), ln=1, align="C")
+    pdf.cell(0, 10, "PRESUPUESTO" if tipo == "presupuesto" else "ORDEN DE TRABAJO", ln=1, align="C")
     
     pdf.set_font("Arial", "", 11)
-    pdf.cell(0, 8, f"Orden: {ot_id}   Patente: {patente}   Mecánico: {mecanico}", ln=1)
-    pdf.cell(0, 8, f"Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=1)
-    if detalles_cliente:
-        pdf.cell(0, 8, f"Cliente indicó: {detalles_cliente}", ln=1)
+    pdf.cell(0, 8, f"Orden: {ot_id}   Patente: {patente}", ln=1)
+    pdf.cell(0, 8, f"Mecánico: {mecanico}   Fecha: {datetime.now().strftime('%d/%m/%Y')}", ln=1)
     pdf.ln(5)
 
-    # Items
+    # Tabla
     pdf.set_font("Arial", "B", 10)
     pdf.cell(80, 8, "Descripción", 1)
-    pdf.cell(20, 8, "Cant.", 1, align="C")
-    pdf.cell(35, 8, "P.Unitario", 1, align="R")
+    pdf.cell(20, 8, "Cant", 1, align="C")
+    pdf.cell(35, 8, "P. Unit", 1, align="R")
     pdf.cell(35, 8, "Subtotal", 1, align="R", ln=1)
 
     subtotal = 0
     pdf.set_font("Arial", "", 10)
     for item in items:
-        pdf.cell(80, 8, str(item['descripcion'])[:40], 1)
-        pdf.cell(20, 8, str(item['cantidad']), 1, align="C")
-        pdf.cell(35, 8, f"${item['precio_unit']:,.0f}", 1, align="R")
-        pdf.cell(35, 8, f"${item['subtotal']:,.0f}", 1, align="R", ln=1)
-        subtotal += item['subtotal']
+        pdf.cell(80, 8, str(item.get('descripcion', ''))[:40], 1)
+        pdf.cell(20, 8, str(item.get('cantidad', '')), 1, align="C")
+        pdf.cell(35, 8, f"${item.get('precio_unit', 0):,.0f}", 1, align="R")
+        pdf.cell(35, 8, f"${item.get('subtotal', 0):,.0f}", 1, align="R", ln=1)
+        subtotal += item.get('subtotal', 0)
 
     iva = subtotal * 0.19
     total = subtotal + iva
@@ -129,87 +115,47 @@ def generar_pdf(tipo, ot_id, patente, mecanico, items, descripcion="", resultado
     pdf.cell(35, 8, f"${subtotal:,.0f}", 1, ln=1, align="R")
     pdf.cell(135, 8, "IVA 19%", 1)
     pdf.cell(35, 8, f"${iva:,.0f}", 1, ln=1, align="R")
-    pdf.set_font("Arial", "B", 12)
     pdf.cell(135, 10, "TOTAL", 1)
     pdf.cell(35, 10, f"${total:,.0f}", 1, ln=1, align="R")
-
-    if tipo == "liquidacion":
-        pdf.ln(10)
-        pdf.cell(0, 10, f"Pagado: ${pagado:,.0f}   |   Pendiente: ${total-pagado:,.0f}", ln=1)
 
     filename = f"{tipo}_{ot_id}.pdf"
     pdf.output(filename)
     return filename
 
-# ==================== DASHBOARD ====================
-if menu == "🏠 Dashboard":
-    st.subheader("Dashboard")
-    conn = get_db_connection()
-    df = pd.read_sql_query("SELECT * FROM ordenes", conn)
-    conn.close()
-    if not df.empty:
-        col1, col2 = st.columns(2)
-        col1.metric("Órdenes Totales", len(df))
-        col2.metric("Ingresos Totales", f"${df['total'].sum():,.0f}")
-
-# ==================== VEHÍCULOS ====================
-elif menu == "🚙 Vehículos":
-    st.subheader("Vehículos")
-    tab1, tab2 = st.tabs(["Nuevo Vehículo", "Lista"])
-    with tab1:
-        with st.form("veh_form"):
-            patente = st.text_input("Patente").upper()
-            marca = st.text_input("Marca")
-            modelo = st.text_input("Modelo")
-            ano = st.number_input("Año", 1950, 2030, 2022)
-            km = st.number_input("Kilometraje", 0, value=50000)
-            rut = st.text_input("RUT Cliente")
-            if st.form_submit_button("Guardar Vehículo", use_container_width=True):
-                conn = get_db_connection()
-                conn.execute("INSERT OR REPLACE INTO vehiculos VALUES (?,?,?,?,?,?)",
-                            (patente, marca, modelo, ano, km, rut))
-                conn.commit()
-                conn.close()
-                st.success("✅ Vehículo guardado")
-
-    with tab2:
-        conn = get_db_connection()
-        st.dataframe(pd.read_sql_query("SELECT patente, marca, modelo, ano FROM vehiculos", conn), use_container_width=True)
-
-# ==================== NUEVA ORDEN ====================
-elif menu == "🛠️ Nueva Orden":
+# ==================== NUEVA ORDEN (CORREGIDO) ====================
+if menu == "🛠️ Nueva Orden":
     st.subheader("Nueva Orden")
     ot_id = f"OT-{datetime.now().strftime('%Y%m%d-%H%M')}"
-    st.info(f"**Número de Orden:** {ot_id}")
+    st.info(f"**Orden:** {ot_id}")
 
     patente = st.text_input("Patente del vehículo").upper()
     mecanico = st.text_input("Mecánico", st.session_state.usuario)
-    descripcion = st.text_area("Descripción general del trabajo")
+    descripcion = st.text_area("Descripción general")
     detalles_cliente = st.text_area("Detalles indicados por el cliente")
-
-    if 'items' not in st.session_state:
-        st.session_state.items = []
 
     col1, col2 = st.columns(2)
     with col1:
-        tipo = st.selectbox("Tipo", ["Mano de Obra", "Repuesto", "Insumo", "Lubricante"])
-        cantidad = st.number_input("Cantidad", 0.1, value=1.0)
+        tipo_item = st.selectbox("Tipo", ["Mano de Obra", "Repuesto", "Insumo", "Lubricante"])
+        cantidad = st.number_input("Cantidad", min_value=0.1, value=1.0, step=0.5)
     with col2:
         desc_item = st.text_input("Descripción del item")
-        precio = st.number_input("Precio Unitario $", 0, value=15000)
+        precio = st.number_input("Precio Unitario $", min_value=0, value=15000)
 
     if st.button("➕ Agregar Item", use_container_width=True):
         st.session_state.items.append({
-            "tipo": tipo,
+            "tipo": tipo_item,
             "descripcion": desc_item,
             "cantidad": cantidad,
             "precio_unit": precio,
-            "subtotal": cantidad * precio
+            "subtotal": round(cantidad * precio, 2)
         })
+        st.rerun()
 
+    # === Mostrar items de forma segura ===
     if st.session_state.items:
         df_items = pd.DataFrame(st.session_state.items)
         st.dataframe(df_items, use_container_width=True)
+        
         subtotal = df_items['subtotal'].sum()
         st.metric("Total con IVA", f"${subtotal * 1.19:,.0f}")
 
@@ -225,29 +171,20 @@ elif menu == "🛠️ Nueva Orden":
                             (ot_id, datetime.now().strftime("%Y-%m-%d %H:%M"), patente, 
                              "Pendiente", mecanico, descripcion, subtotal, subtotal*0.19, subtotal*1.19))
                 for item in st.session_state.items:
-                    conn.execute("INSERT INTO items_ot (ot_id, tipo, descripcion, cantidad, precio_unit, subtotal) VALUES (?,?,?,?,?,?)",
+                    conn.execute("INSERT INTO items_ot VALUES (NULL,?,?,?,?,?,?)",
                                 (ot_id, item['tipo'], item['descripcion'], item['cantidad'], item['precio_unit'], item['subtotal']))
                 conn.commit()
                 conn.close()
-                st.success("Orden guardada correctamente")
-                st.session_state.items = []
+                st.success("✅ Orden guardada correctamente")
+                st.session_state.items = []  # Limpiar
+                st.rerun()
             else:
-                st.error("Agrega al menos un item")
+                st.warning("Agrega al menos un item")
 
     with col2:
         if st.button("📄 Generar Presupuesto", use_container_width=True) and st.session_state.items:
-            filename = generar_pdf("presupuesto", ot_id, patente, mecanico, st.session_state.items, descripcion, detalles_cliente=detalles_cliente)
+            filename = generar_pdf("presupuesto", ot_id, patente, mecanico, st.session_state.items, descripcion, detalles_cliente)
             with open(filename, "rb") as f:
-                st.download_button("⬇️ Descargar Presupuesto PDF", f, file_name=filename, use_container_width=True)
+                st.download_button("⬇️ Descargar PDF", f, file_name=filename, use_container_width=True)
 
-# ==================== HISTORIAL ====================
-elif menu == "📖 Historial":
-    st.subheader("Historial por Patente")
-    patente = st.text_input("Ingresa la Patente").upper()
-    if patente:
-        conn = get_db_connection()
-        ordenes = pd.read_sql_query("SELECT * FROM ordenes WHERE patente=? ORDER BY fecha DESC", conn, params=(patente,))
-        st.dataframe(ordenes, use_container_width=True)
-        conn.close()
-
-st.caption("Sistema de Gestión Taller v2.5 - Probando en la nube")
+st.caption("Sistema Taller v2.6 - Error corregido")
