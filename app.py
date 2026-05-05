@@ -11,8 +11,8 @@ import shutil
 st.set_page_config(page_title="ENAM Taller", layout="centered")
 st.title("🚗 ENAM Servicio Automotriz")
 
-if not os.path.exists("uploads"):
-    os.makedirs("uploads")
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # ================= SEGURIDAD =================
 def hash_pass(p):
@@ -20,7 +20,7 @@ def hash_pass(p):
 
 # ================= DB =================
 def db():
-    return sqlite3.connect('taller.db')
+    return sqlite3.connect('taller.db', check_same_thread=False)
 
 def init_db():
     conn = db()
@@ -72,8 +72,10 @@ if not st.session_state.login:
 
     if st.button("Ingresar"):
         conn = db()
-        user = conn.execute("SELECT * FROM usuarios WHERE username=? AND password=?",
-                            (u, hash_pass(p))).fetchone()
+        user = conn.execute(
+            "SELECT * FROM usuarios WHERE username=? AND password=?",
+            (u, hash_pass(p))
+        ).fetchone()
         conn.close()
 
         if user:
@@ -97,10 +99,11 @@ if menu == "Dashboard":
     if not df.empty:
         total = df['total'].sum()
         pagado = df['pagado'].sum()
-
         st.metric("💰 Total", f"${total:,.0f}")
         st.metric("💵 Pagado", f"${pagado:,.0f}")
         st.metric("⏳ Pendiente", f"${total-pagado:,.0f}")
+    else:
+        st.info("Sin datos aún")
 
 # ================= VEHICULOS =================
 elif menu == "Vehículos":
@@ -113,17 +116,22 @@ elif menu == "Vehículos":
     km = st.number_input("KM")
 
     if st.button("Guardar Vehículo"):
-        conn = db()
-        conn.execute("INSERT OR REPLACE INTO vehiculos VALUES (?,?,?,?,?)",
-                     (patente,marca,modelo,ano,km))
-        conn.commit()
-        conn.close()
-        st.success("Vehículo guardado")
+        if not patente:
+            st.warning("Ingresa patente")
+        else:
+            conn = db()
+            conn.execute(
+                "INSERT OR REPLACE INTO vehiculos VALUES (?,?,?,?,?)",
+                (patente, marca, modelo, ano, km)
+            )
+            conn.commit()
+            conn.close()
+            st.success("Vehículo guardado")
 
 # ================= NUEVA ORDEN =================
 elif menu == "Nueva Orden":
 
-    # 🔥 PROTECCIÓN TOTAL session_state
+    # 🔒 Inicialización robusta de items
     if "items" not in st.session_state or not isinstance(st.session_state.get("items"), list):
         st.session_state.items = []
 
@@ -148,8 +156,14 @@ elif menu == "Nueva Orden":
     cant = st.number_input("Cantidad", 1.0)
     precio = st.number_input("Precio FINAL (IVA incluido)", 1000)
 
+    # 🔥 agregar item seguro
     if st.button("Agregar Item"):
-        if item_desc:
+        if not item_desc:
+            st.warning("Ingresa descripción")
+        else:
+            if not isinstance(st.session_state.items, list):
+                st.session_state.items = []
+
             st.session_state.items.append({
                 "tipo": tipo,
                 "descripcion": item_desc,
@@ -158,7 +172,7 @@ elif menu == "Nueva Orden":
                 "subtotal": cant * precio
             })
 
-    # 🔥 MOSTRAR ITEMS SEGURO
+    # 🔥 mostrar items seguro
     if isinstance(st.session_state.items, list) and len(st.session_state.items) > 0:
         try:
             df_items = pd.DataFrame(st.session_state.items)
@@ -180,42 +194,46 @@ elif menu == "Nueva Orden":
             neto = total / 1.19
             iva = total - neto
 
-            conn.execute("INSERT INTO ordenes VALUES (?,?,?,?,?,?,?,?,?,0)",
-                         (ot_id,
-                          datetime.now().strftime("%Y-%m-%d %H:%M"),
-                          patente,
-                          "Pendiente",
-                          st.session_state.user,
-                          desc,
-                          neto,
-                          iva,
-                          total))
+            conn.execute(
+                "INSERT INTO ordenes VALUES (?,?,?,?,?,?,?,?,?,0)",
+                (
+                    ot_id,
+                    datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    patente,
+                    "Pendiente",
+                    st.session_state.user,
+                    desc,
+                    neto,
+                    iva,
+                    total
+                )
+            )
 
             for i in st.session_state.items:
-                conn.execute("""INSERT INTO items_ot 
+                conn.execute(
+                    """INSERT INTO items_ot 
                     (ot_id, tipo, descripcion, cantidad, precio_unit, subtotal)
                     VALUES (?,?,?,?,?,?)""",
-                    (ot_id, i['tipo'], i['descripcion'], i['cantidad'], i['precio_unit'], i['subtotal']))
+                    (ot_id, i['tipo'], i['descripcion'], i['cantidad'], i['precio_unit'], i['subtotal'])
+                )
 
             # fotos
             if fotos:
                 for f in fotos:
                     name = f"{uuid.uuid4()}_{f.name}"
-                    path = os.path.join("uploads", name)
-
+                    path = os.path.join(UPLOAD_DIR, name)
                     with open(path, "wb") as out:
                         out.write(f.read())
 
-                    conn.execute("""INSERT INTO fotos_vehiculo 
-                        (patente, filename, fecha)
-                        VALUES (?,?,?)""",
-                        (patente, name, datetime.now()))
+                    conn.execute(
+                        "INSERT INTO fotos_vehiculo (patente, filename, fecha) VALUES (?,?,?)",
+                        (patente, name, datetime.now().strftime("%Y-%m-%d %H:%M"))
+                    )
 
             conn.commit()
             conn.close()
 
             backup()
-
             st.success("Orden guardada correctamente")
             st.session_state.items = []
 
@@ -227,8 +245,10 @@ elif menu == "Historial":
 
     if patente:
         conn = db()
-        df = pd.read_sql_query("SELECT * FROM ordenes WHERE patente=? ORDER BY fecha DESC",
-                               conn, params=(patente,))
+        df = pd.read_sql_query(
+            "SELECT * FROM ordenes WHERE patente=? ORDER BY fecha DESC",
+            conn, params=(patente,)
+        )
         conn.close()
 
         if df.empty:
@@ -242,23 +262,29 @@ elif menu == "Historial":
 
                 col1, col2 = st.columns(2)
 
+                # finalizar
                 with col1:
                     if row['estado'] != "Terminado":
                         if st.button(f"Finalizar {row['ot_id']}", key=f"fin{row['ot_id']}"):
                             conn = db()
-                            conn.execute("UPDATE ordenes SET estado='Terminado' WHERE ot_id=?",
-                                         (row['ot_id'],))
+                            conn.execute(
+                                "UPDATE ordenes SET estado='Terminado' WHERE ot_id=?",
+                                (row['ot_id'],)
+                            )
                             conn.commit()
                             conn.close()
                             st.rerun()
 
+                # pago
                 with col2:
                     pago = st.number_input(f"Pago {row['ot_id']}", 0, key=f"pay{row['ot_id']}")
 
                     if st.button(f"Pagar {row['ot_id']}", key=f"btn{row['ot_id']}"):
                         conn = db()
-                        conn.execute("UPDATE ordenes SET pagado=? WHERE ot_id=?",
-                                     (pago, row['ot_id']))
+                        conn.execute(
+                            "UPDATE ordenes SET pagado=? WHERE ot_id=?",
+                            (pago, row['ot_id'])
+                        )
                         conn.commit()
                         conn.close()
                         st.rerun()
