@@ -20,7 +20,7 @@ def hash_pass(p):
     return hashlib.sha256(p.encode()).hexdigest()
 
 # ==================== DB ====================
-def def init_db():
+def init_db():
     conn = sqlite3.connect('taller.db')
     c = conn.cursor()
 
