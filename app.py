@@ -2,7 +2,6 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 from datetime import datetime
-from fpdf import FPDF
 import os
 import uuid
 import hashlib
@@ -27,7 +26,6 @@ def init_db():
     conn = db()
     c = conn.cursor()
 
-    # RESET CONTROLADO (solo si hay error de estructura)
     c.execute("""CREATE TABLE IF NOT EXISTS usuarios 
         (username TEXT PRIMARY KEY, password TEXT, nombre TEXT, rol TEXT)""")
 
@@ -45,7 +43,7 @@ def init_db():
     c.execute("""CREATE TABLE IF NOT EXISTS fotos_vehiculo 
         (id INTEGER PRIMARY KEY AUTOINCREMENT, patente TEXT, filename TEXT, fecha TEXT)""")
 
-    # usuarios seguros
+    # usuarios por defecto
     c.execute("INSERT OR IGNORE INTO usuarios VALUES ('admin', ?, 'Administrador', 'admin')",
               (hash_pass('admin123'),))
     c.execute("INSERT OR IGNORE INTO usuarios VALUES ('mecanico', ?, 'Mecánico', 'mecanico')",
@@ -88,7 +86,6 @@ if not st.session_state.login:
     st.stop()
 
 st.sidebar.success(f"👤 {st.session_state.user}")
-
 menu = st.sidebar.selectbox("Menú", ["Dashboard","Vehículos","Nueva Orden","Historial"])
 
 # ================= DASHBOARD =================
@@ -126,7 +123,8 @@ elif menu == "Vehículos":
 # ================= NUEVA ORDEN =================
 elif menu == "Nueva Orden":
 
-    if "items" not in st.session_state or not isinstance(st.session_state.items, list):
+    # 🔥 PROTECCIÓN TOTAL session_state
+    if "items" not in st.session_state or not isinstance(st.session_state.get("items"), list):
         st.session_state.items = []
 
     ot_id = f"OT-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
@@ -160,18 +158,18 @@ elif menu == "Nueva Orden":
                 "subtotal": cant * precio
             })
 
-    # mostrar items seguro
-    if len(st.session_state.items) > 0:
+    # 🔥 MOSTRAR ITEMS SEGURO
+    if isinstance(st.session_state.items, list) and len(st.session_state.items) > 0:
         try:
             df_items = pd.DataFrame(st.session_state.items)
 
-            if "subtotal" in df_items.columns:
+            if not df_items.empty and "subtotal" in df_items.columns:
                 st.dataframe(df_items, use_container_width=True)
                 st.metric("Total", f"${df_items['subtotal'].sum():,.0f}")
         except:
             st.session_state.items = []
 
-    # guardar orden
+    # ================= GUARDAR ORDEN =================
     if st.button("Guardar Orden"):
         if not st.session_state.items:
             st.error("Debes agregar items")
@@ -218,14 +216,14 @@ elif menu == "Nueva Orden":
 
             backup()
 
-            st.success("Orden guardada")
+            st.success("Orden guardada correctamente")
             st.session_state.items = []
 
 # ================= HISTORIAL =================
 elif menu == "Historial":
     st.subheader("Historial")
 
-    patente = st.text_input("Patente buscar").upper()
+    patente = st.text_input("Buscar patente").upper()
 
     if patente:
         conn = db()
@@ -239,12 +237,11 @@ elif menu == "Historial":
             for _, row in df.iterrows():
 
                 st.markdown(f"### {row['ot_id']} - {row['estado']}")
-                st.write(f"💰 ${row['total']:,.0f}")
+                st.write(f"💰 Total: ${row['total']:,.0f}")
                 st.write(f"💵 Pagado: ${row['pagado']:,.0f}")
 
                 col1, col2 = st.columns(2)
 
-                # finalizar
                 with col1:
                     if row['estado'] != "Terminado":
                         if st.button(f"Finalizar {row['ot_id']}", key=f"fin{row['ot_id']}"):
@@ -255,7 +252,6 @@ elif menu == "Historial":
                             conn.close()
                             st.rerun()
 
-                # pago
                 with col2:
                     pago = st.number_input(f"Pago {row['ot_id']}", 0, key=f"pay{row['ot_id']}")
 
