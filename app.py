@@ -24,13 +24,32 @@ def init_db():
     conn = sqlite3.connect('taller.db')
     c = conn.cursor()
 
-    c.execute("""CREATE TABLE IF NOT EXISTS usuarios 
+    # 🔥 BORRAR TABLAS ANTIGUAS (IMPORTANTE)
+    c.execute("DROP TABLE IF EXISTS vehiculos")
+    c.execute("DROP TABLE IF EXISTS usuarios")
+    c.execute("DROP TABLE IF EXISTS ordenes")
+    c.execute("DROP TABLE IF EXISTS items_ot")
+    c.execute("DROP TABLE IF EXISTS fotos_vehiculo")
+
+    # 🔧 CREAR DESDE CERO
+    c.execute("""CREATE TABLE vehiculos 
+        (patente TEXT PRIMARY KEY, marca TEXT, modelo TEXT, ano INTEGER, km INTEGER)""")
+
+    c.execute("""CREATE TABLE usuarios 
         (username TEXT PRIMARY KEY, password TEXT, nombre TEXT, rol TEXT)""")
 
-    # 🔥 BORRAR USUARIOS ANTIGUOS
-    c.execute("DELETE FROM usuarios")
+    c.execute("""CREATE TABLE ordenes 
+        (ot_id TEXT PRIMARY KEY, fecha TEXT, patente TEXT, estado TEXT,
+         mecanico TEXT, descripcion TEXT, subtotal REAL, iva REAL, total REAL, pagado REAL DEFAULT 0)""")
 
-    # 🔥 CREAR NUEVOS CON HASH
+    c.execute("""CREATE TABLE items_ot 
+        (id INTEGER PRIMARY KEY AUTOINCREMENT, ot_id TEXT, tipo TEXT, descripcion TEXT,
+         cantidad REAL, precio_unit REAL, subtotal REAL)""")
+
+    c.execute("""CREATE TABLE fotos_vehiculo 
+        (id INTEGER PRIMARY KEY AUTOINCREMENT, patente TEXT, filename TEXT, fecha TEXT)""")
+
+    # usuarios
     c.execute("INSERT INTO usuarios VALUES ('admin', ?, 'Administrador', 'admin')",
               (hash_pass('admin123'),))
     c.execute("INSERT INTO usuarios VALUES ('mecanico', ?, 'Mecánico', 'mecanico')",
